@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AJAR Document Manager</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#1e3a8a', secondary: '#3b82f6' }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        @media print {
+            body { background-color: white; margin: 0; padding: 0; }
+            @page { margin: 1cm; }
+            .print-hidden { display: none !important; }
+            .print-only { display: block !important; }
+            .document-container {
+                box-shadow: none !important; margin: 0 !important; padding: 0 !important;
+                width: 100% !important; max-width: none !important; border: none !important;
+            }
+        }
+        canvas { touch-action: none; }
+    </style>
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const AddressesTab = ({ addresses, setAddresses }) => {
+            const [newAddress, setNewAddress] = useState('');
+            
+            const addAddress = () => {
+                if(newAddress.trim()) {
+                    setAddresses([...addresses, { id: Date.now(), text: newAddress.trim(), isDefault: addresses.length === 0 }]);
+                    setNewAddress('');
+                }
+            };
+
+            const deleteAddress = (id) => {
+                if (addresses.length <= 1) return;
+                const updated = addresses.filter(a => a.id !== id);
+                if (addresses.find(a => a.id === id)?.isDefault && updated.length > 0) {
+                    updated[0].isDefault = true;
+                }
+                setAddresses(updated);
+            };
+
+            const setDefault = (id) => {
+                setAddresses(addresses.map(a => ({ ...a, isDefault: a.id === id })));
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md max-w-2xl mx-auto print-hidden">
+                    <h2 className="text-2xl font-bold text-primary mb-6 border-b pb-2 flex items-center gap-2">
+                        <i data-lucide="map-pin"></i> Manage Business Addresses
+                    </h2>
+                    
+                    <div className="flex gap-2 mb-6">
+                        <input type="text" value={newAddress} onChange={e => setNewAddress(e.target.value)} placeholder="Enter new business address..." className="flex-grow border rounded p-2 focus:ring-primary focus:border-primary" />
+                        <button onClick={addAddress} className="bg-primary text-white px-4 py-2 rounded hover:bg-blue-800 transition">Add</button>
+                    </div>
+
+                    <div className="space-y-3">
+                        {addresses.map(addr => (
+                            <div key={addr.id} className={`flex items-center justify-between p-3 border rounded ${addr.isDefault ? 'bg-blue-50 border-blue-200' : 'bg-gray-50'}`}>
+                                <div className="flex items-center gap-3 flex-grow">
+                                    <input type="radio" name="default_addr" checked={addr.isDefault} onChange={() => setDefault(addr.id)} className="w-4 h-4 text-primary focus:ring-primary" />
+                                    <span className={addr.isDefault ? 'font-semibold text-primary' : 'text-gray-700'}>{addr.text}</span>
+                                    {addr.isDefault && <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded-full">Default</span>}
+                                </div>
+                                <button onClick={() => deleteAddress(addr.id)} disabled={addresses.length <= 1} className="text-red-500 hover:text-red-700 disabled:opacity-30 p-2">
+                                    <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const SignatureTab = ({ signature, setSignature }) => {
+            const canvasRef = useRef(null);
+            const [isDrawing, setIsDrawing] = useState(false);
+            const hasDrawn = useRef(false);
+
+            const initCanvas = () => {
+                const canvas = canvasRef.current;
+                if (canvas) {
+                    const ctx = canvas.getContext('2d');
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                }
+            };
+
+            useEffect(() => {
+                initCanvas();
+            }, []);
+
+            const getCoordinates = (e) => {
+                const canvas = canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                
+                let clientX = e.clientX;
+                let clientY = e.clientY;
+
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                }
+
+                return { 
+                    x: (clientX - rect.left) * scaleX, 
+                    y: (clientY - rect.top) * scaleY 
+                };
+            };
+
+            const startDrawing = (e) => {
+                if (e.cancelable) e.preventDefault();
+                const { x, y } = getCoordinates(e);
+                const ctx = canvasRef.current.getContext('2d');
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                setIsDrawing(true);
+            };
+
+            const draw = (e) => {
+                if (!isDrawing) return;
+                if (e.cancelable) e.preventDefault();
+                const { x, y } = getCoordinates(e);
+                const ctx = canvasRef.current.getContext('2d');
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                hasDrawn.current = true;
+            };
+
+            const stopDrawing = () => {
+                setIsDrawing(false);
+            };
+
+            const clearCanvas = () => {
+                initCanvas();
+                hasDrawn.current = false;
+            };
+
+            const saveSignature = () => {
+                if (!hasDrawn.current) {
+                    alert("Please draw your signature first before saving.");
+                    return;
+                }
+                const canvas = canvasRef.current;
+                const dataUrl = canvas.toDataURL('image/png');
+                setSignature(dataUrl);
+                alert("Drawn Signature saved successfully! You can now append it to your documents.");
+            };
+
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        setSignature(event.target.result);
+                        alert("Signature image uploaded and saved successfully! You can now append it to your documents.");
+                    };
+                    reader.onerror = () => {
+                        alert("Error reading file. Please try another image.");
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow-md max-w-2xl mx-auto print-hidden">
+                    <h2 className="text-2xl font-bold text-primary mb-6 border-b pb-2 flex items-center gap-2">
+                        <i data-lucide="pen-tool"></i> Digital Signature
+                    </h2>
+                    
+                    <div className="mb-6">
+                        <p className="text-sm text-gray-600 mb-2">Draw your signature below or upload an image file. This can be appended to Invoices and Delivery Notes.</p>
+                        <div className="border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 flex justify-center p-2 touch-none">
+                            <canvas 
+                                ref={canvasRef} width={400} height={200} className="bg-white border rounded shadow-sm cursor-crosshair max-w-full"
+                                onMouseDown={startDrawing} onMouseMove={draw} onMouseUp={stopDrawing} onMouseLeave={stopDrawing}
+                                onTouchStart={startDrawing} onTouchMove={draw} onTouchEnd={stopDrawing}
+                            ></canvas>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4 justify-between items-center border-b pb-6 mb-4">
+                        <label className="cursor-pointer bg-blue-50 text-primary px-4 py-2 rounded border border-blue-200 hover:bg-blue-100 transition flex items-center gap-2 w-full sm:w-auto justify-center font-medium shadow-sm">
+                            <i data-lucide="upload" className="w-4 h-4"></i> Upload Image (PNG/JPG)
+                            <input type="file" accept="image/png, image/jpeg" onChange={handleFileUpload} className="hidden" />
+                        </label>
+                        
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <button onClick={clearCanvas} className="flex-1 sm:flex-none px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition text-sm">Clear Canvas</button>
+                            <button onClick={saveSignature} className="flex-1 sm:flex-none px-4 py-2 bg-primary text-white rounded hover:bg-blue-800 transition text-sm font-medium">Save Drawn</button>
+                        </div>
+                    </div>
+
+                    {signature && (
+                        <div className="mt-4">
+                            <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                <i data-lucide="check-circle" className="text-green-500 w-4 h-4"></i> Currently Saved Signature:
+                            </h3>
+                            <div className="bg-gray-50 inline-block p-2 rounded border">
+                                <img src={signature} alt="Saved Signature" className="h-20 bg-white object-contain border" />
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const currentYear = new Date().getFullYear();
+            
+            const [addresses, setAddresses] = useState(() => {
+                const saved = localStorage.getItem('ajar_addresses');
+                return saved ? JSON.parse(saved) : [{ id: 1, text: 'R. Ungoofaaru, Maldives', isDefault: true }];
+            });
+
+            const [customers, setCustomers] = useState(() => {
+                const saved = localStorage.getItem('ajar_customers');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            const [signature, setSignature] = useState(() => {
+                try {
+                    return localStorage.getItem('ajar_signature') || null;
+                } catch (e) {
+                    return null;
+                }
+            });
+
+            const [history, setHistory] = useState(() => {
+                const saved = localStorage.getItem('ajar_history');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            const [bundleCounter, setBundleCounter] = useState(() => {
+                const saved = localStorage.getItem('ajar_counter');
+                return saved ? parseInt(saved) : 1;
+            });
+
+            const [activeBundleId, setActiveBundleId] = useState(null);
+            const [formState, setFormState] = useState({
+                customerName: '',
+                customerContact: '',
+                address: '',
+                email: '',
+                date: new Date().toISOString().split('T')[0],
+                items: [{ id: Date.now(), description: '', quantity: 1, price: 0 }],
+                docs: { q: null, inv: null, dn: null }
+            });
+
+            const [activeTab, setActiveTab] = useState('edit');
+            const [showSignatureDoc, setShowSignatureDoc] = useState(false);
+
+            useEffect(() => localStorage.setItem('ajar_addresses', JSON.stringify(addresses)), [addresses]);
+            useEffect(() => localStorage.setItem('ajar_customers', JSON.stringify(customers)), [customers]);
+            useEffect(() => localStorage.setItem('ajar_history', JSON.stringify(history)), [history]);
+            useEffect(() => localStorage.setItem('ajar_counter', bundleCounter.toString()), [bundleCounter]);
+            
+            useEffect(() => {
+                try {
+                    if (signature) {
+                        localStorage.setItem('ajar_signature', signature);
+                    } else {
+                        localStorage.removeItem('ajar_signature');
+                    }
+                } catch (e) {
+                    alert("Warning: The signature image is too large to save to local storage.");
+                }
+            }, [signature]);
+
+            const getDefaultAddress = () => {
+                const def = addresses.find(a => a.isDefault);
+                return def ? def.text : (addresses[0]?.text || '');
+            };
+
+            const saveCurrentStateToHistory = (newBundleId, newFormState) => {
+                const targetId = newBundleId || activeBundleId;
+                const targetState = newFormState || formState;
+                
+                setHistory(prev => {
+                    const existingIdx = prev.findIndex(h => h.id === targetId);
+                    const historyItem = {
+                        id: targetId,
+                        customerName: targetState.customerName,
+                        customerContact: targetState.customerContact,
+                        date: targetState.date,
+                        items: targetState.items,
+                        docs: targetState.docs
+                    };
+                    
+                    if (existingIdx >= 0) {
+                        const newHistory = [...prev];
+                        newHistory[existingIdx] = historyItem;
+                        return newHistory;
+                    }
+                    return [historyItem, ...prev]; 
+                });
+            };
+
+            const generateDocument = (type) => {
+                let currentId = activeBundleId;
+                let nextCounter = bundleCounter;
+                let currentDocs = { ...formState.docs };
+
+                if (!currentId) {
+                    currentId = bundleCounter;
+                    setActiveBundleId(currentId);
+                    nextCounter++;
+                    setBundleCounter(nextCounter);
+                }
+
+                let prefix = type === 'quotation' ? 'Q' : type === 'invoice' ? 'Inv' : 'DN';
+                const docNumber = `${currentYear}/${prefix}/Ajar/${currentId}`;
+                
+                if (type === 'quotation') currentDocs.q = docNumber;
+                if (type === 'invoice') currentDocs.inv = docNumber;
+                if (type === 'delivery') currentDocs.dn = docNumber;
+
+                const newState = { ...formState, docs: currentDocs };
+                setFormState(newState);
+                saveCurrentStateToHistory(currentId, newState);
+                setActiveTab(type);
+            };
+
+            const loadHistoryBundle = (bundle) => {
+                setActiveBundleId(bundle.id);
+                setFormState({
+                    customerName: bundle.customerName || '',
+                    customerContact: bundle.customerContact || '',
+                    address: '', 
+                    email: '',
+                    date: bundle.date,
+                    items: bundle.items,
+                    docs: bundle.docs
+                });
+                setActiveTab(bundle.docs.q ? 'quotation' : 'edit');
+            };
+
+            const startNewBundle = () => {
+                setActiveBundleId(null);
+                setFormState({
+                    customerName: '', customerContact: '', address: '', email: '', date: new Date().toISOString().split('T')[0],
+                    items: [{ id: Date.now(), description: '', quantity: 1, price: 0 }],
+                    docs: { q: null, inv: null, dn: null }
+                });
+                setActiveTab('edit');
+            };
+
+            const renderCustomers = () => {
+                const deleteCustomer = (id) => setCustomers(customers.filter(c => c.id !== id));
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto print-hidden">
+                        <h2 className="text-2xl font-bold text-primary mb-6 border-b pb-2 flex items-center gap-2">
+                            <i data-lucide="users"></i> Saved Customers
+                        </h2>
+                        {customers.length === 0 ? (
+                            <p className="text-gray-500 text-center py-8">No customers saved yet.</p>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {customers.map(cust => (
+                                    <div key={cust.id} className="border rounded-lg p-4 bg-gray-50 flex justify-between items-start shadow-sm">
+                                        <div>
+                                            <h3 className="font-bold text-primary text-lg">{cust.name}</h3>
+                                            {cust.contact && <p className="text-sm text-gray-600 mt-1 flex items-center gap-1"><i data-lucide="phone" className="w-3 h-3"></i> {cust.contact}</p>}
+                                            {cust.address && <p className="text-sm text-gray-500 mt-2 whitespace-pre-line border-t pt-2">{cust.address}</p>}
+                                        </div>
+                                        <button onClick={() => deleteCustomer(cust.id)} className="text-red-500 hover:bg-red-50 p-2 rounded transition"><i data-lucide="trash-2" className="w-5 h-5"></i></button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const renderHistory = () => {
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto print-hidden">
+                        <h2 className="text-2xl font-bold text-primary mb-6 border-b pb-2 flex items-center gap-2">
+                            <i data-lucide="archive"></i> Document History
+                        </h2>
+                        {history.length === 0 ? (
+                            <p className="text-gray-500 text-center py-8">No documents generated yet.</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {history.map(bundle => (
+                                    <div key={bundle.id} className="border rounded-lg p-4 hover:shadow-md transition bg-gray-50">
+                                        <div className="flex justify-between items-start mb-3 border-b pb-2">
+                                            <div>
+                                                <h3 className="font-bold text-lg text-primary">#{bundle.id} - {bundle.customerName || 'Unknown Customer'}</h3>
+                                                <p className="text-xs text-gray-500">{bundle.date} | {bundle.items.length} Items</p>
+                                            </div>
+                                            <button onClick={() => loadHistoryBundle(bundle)} className="bg-secondary text-white px-3 py-1 text-sm rounded hover:bg-blue-600 transition flex items-center gap-1">
+                                                Open Bundle <i data-lucide="arrow-right" className="w-3 h-3"></i>
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 text-sm">
+                                            {bundle.docs.q && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">Q: {bundle.docs.q}</span>}
+                                            {bundle.docs.inv && <span className="bg-green-100 text-green-800 px-2 py-1 rounded">Inv: {bundle.docs.inv}</span>}
+                                            {bundle.docs.dn && <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded">DN: {bundle.docs.dn}</span>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const renderEditForm = () => {
+                const handleItemChange = (id, field, value) => setFormState(prev => ({...prev, items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)}));
+                const addItem = () => setFormState(prev => ({ ...prev, items: [...prev.items, { id: Date.now(), description: '', quantity: 1, price: 0 }] }));
+                const removeItem = (id) => { if (formState.items.length > 1) setFormState(prev => ({ ...prev, items: prev.items.filter(item => item.id !== id) })); };
+
+                const handleCustomerSelect = (e) => {
+                    const cust = customers.find(c => c.id.toString() === e.target.value);
+                    if (cust) setFormState(prev => ({ ...prev, customerName: cust.name, customerContact: cust.contact || '', address: cust.address || '' }));
+                };
+
+                const quickAddCustomer = () => {
+                    if (!formState.customerName.trim()) return alert('Please enter at least a Customer Name to save.');
+                    setCustomers([...customers, { id: Date.now(), name: formState.customerName, contact: formState.customerContact, address: formState.address }]);
+                    alert('Customer saved to your list!');
+                };
+
+                return (
+                    <div className="bg-white p-6 rounded-lg shadow-md max-w-4xl mx-auto print-hidden">
+                        <div className="flex justify-between items-center mb-6 border-b pb-2">
+                            <h2 className="text-2xl font-bold text-primary flex items-center gap-2"><i data-lucide="edit-3"></i> {activeBundleId ? `Editing Bundle #${activeBundleId}` : 'Create New Document'}</h2>
+                            {activeBundleId && <button onClick={startNewBundle} className="text-sm bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded text-gray-700">Start Fresh</button>}
+                        </div>
+
+                        <div className="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-100">
+                            <label className="block text-sm font-semibold text-blue-900 mb-2">Auto-fill from Saved Customers</label>
+                            <select onChange={handleCustomerSelect} className="w-full border rounded p-2 text-gray-700 bg-white focus:ring-primary focus:border-primary">
+                                <option value="">-- Select a Customer --</option>
+                                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="block text-sm font-medium text-gray-700">Customer Name</label>
+                                    <button onClick={quickAddCustomer} className="text-xs bg-green-100 text-green-700 font-medium px-2 py-1 rounded hover:bg-green-200 transition flex items-center gap-1" title="Save as New Customer"><i data-lucide="save" className="w-3 h-3"></i> Quick Save</button>
+                                </div>
+                                <input type="text" className="w-full border rounded p-2 focus:ring-primary focus:border-primary" value={formState.customerName} onChange={(e) => setFormState({...formState, customerName: e.target.value})} placeholder="e.g. Acme Corp" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input type="date" className="w-full border rounded p-2 focus:ring-primary focus:border-primary" value={formState.date} onChange={(e) => setFormState({...formState, date: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Contact (Phone/Email)</label>
+                                <input type="text" className="w-full border rounded p-2 focus:ring-primary focus:border-primary" value={formState.customerContact} onChange={(e) => setFormState({...formState, customerContact: e.target.value})} placeholder="e.g. +960 777-7777" />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Address</label>
+                                <textarea className="w-full border rounded p-2 focus:ring-primary focus:border-primary" value={formState.address} onChange={(e) => setFormState({...formState, address: e.target.value})} rows="2" placeholder="Customer address..."></textarea>
+                            </div>
+                        </div>
+
+                        <h3 className="text-lg font-semibold mb-4 border-t pt-4">Line Items</h3>
+                        <div className="overflow-x-auto mb-4 border rounded">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-50 border-b">
+                                        <th className="p-3 border-r font-medium text-gray-600">Description</th>
+                                        <th className="p-3 border-r w-24 font-medium text-gray-600">Qty</th>
+                                        <th className="p-3 border-r w-40 font-medium text-gray-600">Unit Price</th>
+                                        <th className="p-3 border-r w-40 font-medium text-gray-600">Total (MVR)</th>
+                                        <th className="p-3 w-12 text-center font-medium text-gray-600">Act</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {formState.items.map((item) => (
+                                        <tr key={item.id} className="border-b last:border-b-0">
+                                            <td className="p-2 border-r"><input type="text" className="w-full border-none p-1 focus:ring-1 focus:ring-primary rounded" value={item.description} onChange={(e) => handleItemChange(item.id, 'description', e.target.value)} placeholder="Item description..." /></td>
+                                            <td className="p-2 border-r"><input type="number" min="1" className="w-full border-none p-1 focus:ring-1 focus:ring-primary rounded" value={item.quantity} onChange={(e) => handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)} /></td>
+                                            <td className="p-2 border-r"><input type="number" min="0" className="w-full border-none p-1 focus:ring-1 focus:ring-primary rounded" value={item.price} onChange={(e) => handleItemChange(item.id, 'price', parseFloat(e.target.value) || 0)} /></td>
+                                            <td className="p-2 border-r bg-gray-50 text-right text-gray-600 font-medium text-sm">{(item.quantity * item.price).toFixed(2)}</td>
+                                            <td className="p-2 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-700 font-bold px-2 py-1 bg-red-50 rounded">X</button></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <button onClick={addItem} className="bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-200 transition-colors mb-8 text-sm font-medium">
+                            + Add Item
+                        </button>
+
+                        <div className="flex justify-end border-t pt-4 mt-4 gap-2">
+                            {formState.docs.q ? (
+                                <button onClick={() => setActiveTab('quotation')} className="bg-primary text-white px-6 py-2 rounded shadow hover:bg-blue-800 transition">View Quotation</button>
+                            ) : (
+                                <button onClick={() => generateDocument('quotation')} className="bg-primary text-white px-8 py-3 rounded shadow hover:bg-blue-800 transition font-semibold text-lg flex items-center gap-2">
+                                    Generate Quotation <i data-lucide="file-text" className="w-5 h-5"></i>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            const renderDocument = (docType) => {
+                let docTitle, docNumber, showPrices, refText;
+
+                if (docType === 'quotation') {
+                    docTitle = 'QUOTATION'; docNumber = formState.docs.q; showPrices = true;
+                } else if (docType === 'invoice') {
+                    docTitle = 'INVOICE'; docNumber = formState.docs.inv; showPrices = true;
+                } else if (docType === 'delivery') {
+                    docTitle = 'DELIVERY NOTE'; docNumber = formState.docs.dn; showPrices = false;
+                    refText = `Ref Invoice: ${formState.docs.inv || 'Pending'}`;
+                }
+
+                const subtotal = formState.items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+                const businessAddress = getDefaultAddress();
+
+                return (
+                    <div className="max-w-4xl mx-auto flex flex-col items-center">
+                        {/* Control Bar (Hidden on Print) */}
+                        <div className="print-hidden w-full bg-white border-2 border-gray-300 p-4 rounded-t-xl shadow-sm mb-4 gap-4 flex flex-col md:flex-row justify-between items-center">
+                            <div className="flex gap-4 items-center">
+                                {/* HUGE GREEN PRINT BUTTON */}
+                                <button onClick={() => window.print()} className="flex items-center justify-center gap-2 bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition font-bold text-xl shadow-md border border-green-800">
+                                    <i data-lucide="printer" className="w-6 h-6"></i> PRINT
+                                </button>
+                                
+                                {/* SIGNATURE TOGGLE */}
+                                {(docType === 'invoice' || docType === 'delivery') && (
+                                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg flex items-center gap-3">
+                                        <input 
+                                            type="checkbox" 
+                                            id="sigToggle"
+                                            checked={showSignatureDoc} 
+                                            onChange={(e) => setShowSignatureDoc(e.target.checked)} 
+                                            className="w-6 h-6 text-primary rounded cursor-pointer" 
+                                        />
+                                        <label htmlFor="sigToggle" className="cursor-pointer font-bold text-gray-800 select-none flex flex-col">
+                                            <span>Add Saved Signature</span>
+                                            {!signature && <span className="text-xs text-red-500 font-normal">No signature found in Signature tab.</span>}
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex gap-2">
+                                {docType === 'quotation' && (
+                                    formState.docs.inv ? 
+                                        <button onClick={() => setActiveTab('invoice')} className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 font-semibold text-gray-700">View Invoice</button> :
+                                        <button onClick={() => generateDocument('invoice')} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded hover:bg-blue-700 shadow font-bold">Generate Invoice <i data-lucide="arrow-right" className="w-4 h-4"></i></button>
+                                )}
+                                {docType === 'invoice' && (
+                                    formState.docs.dn ? 
+                                        <button onClick={() => setActiveTab('delivery')} className="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300 font-semibold text-gray-700">View Delivery Note</button> :
+                                        <button onClick={() => generateDocument('delivery')} className="flex items-center gap-2 bg-purple-600 text-white px-5 py-2 rounded hover:bg-purple-700 shadow font-bold">Generate Delivery Note <i data-lucide="arrow-right" className="w-4 h-4"></i></button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Printable Area */}
+                        <div className="document-container bg-white p-12 md:p-16 rounded-b-xl shadow-xl w-full min-h-[1056px] relative text-gray-800 font-sans border border-gray-200 flex flex-col justify-between">
+                            <div>
+                                <div className="flex justify-between items-start mb-12 border-b pb-8">
+                                    <div>
+                                        <h1 className="text-5xl font-black text-primary tracking-wider uppercase">AJAR</h1>
+                                        <p className="text-gray-500 mt-2 text-sm uppercase tracking-widest font-semibold">Business Solutions</p>
+                                        <div className="mt-4 text-sm text-gray-600 leading-relaxed max-w-[250px] whitespace-pre-line">
+                                            {businessAddress}
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <h2 className="text-3xl font-bold text-gray-400 uppercase tracking-widest mb-4">{docTitle}</h2>
+                                        <div className="text-sm border bg-gray-50 p-4 rounded inline-block text-left min-w-[200px]">
+                                            <div className="flex justify-between mb-1"><span className="font-semibold text-gray-600">Doc No:</span> <span>{docNumber}</span></div>
+                                            <div className="flex justify-between mb-1"><span className="font-semibold text-gray-600">Date:</span> <span>{formState.date}</span></div>
+                                            {refText && <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-primary">{refText}</span></div>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="mb-10 bg-blue-50 p-5 rounded-r border-l-4 border-primary">
+                                    <h3 className="text-xs font-bold text-primary uppercase mb-2 tracking-wider">Billed To:</h3>
+                                    <p className="font-bold text-xl mb-1">{formState.customerName || 'Customer Name'}</p>
+                                    {formState.customerContact && <p className="text-sm text-gray-700 mb-1">{formState.customerContact}</p>}
+                                    <p className="text-gray-700 whitespace-pre-line">{formState.address || ''}</p>
+                                </div>
+
+                                <table className="w-full mb-10">
+                                    <thead>
+                                        <tr className="border-b-2 border-gray-800 text-sm uppercase tracking-wider text-gray-600 font-bold">
+                                            <th className="py-3 text-left w-12">#</th>
+                                            <th className="py-3 text-left">Description</th>
+                                            <th className="py-3 text-center">Qty</th>
+                                            {showPrices && (
+                                                <>
+                                                    <th className="py-3 text-right">Unit Price</th>
+                                                    <th className="py-3 text-right">Total</th>
+                                                </>
+                                            )}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {formState.items.map((item, idx) => (
+                                            <tr key={idx} className="border-b border-gray-200 text-gray-800">
+                                                <td className="py-4 text-left text-gray-500 text-sm">{idx + 1}</td>
+                                                <td className="py-4 text-left font-medium">{item.description || '-'}</td>
+                                                <td className="py-4 text-center">{item.quantity}</td>
+                                                {showPrices && (
+                                                    <>
+                                                        <td className="py-4 text-right">
+                                                            <span className="text-gray-500 mr-1 text-xs">MVR</span>
+                                                            {item.price.toFixed(2)}
+                                                        </td>
+                                                        <td className="py-4 text-right font-bold text-gray-900">
+                                                            <span className="text-gray-500 mr-1 text-xs">MVR</span>
+                                                            {(item.quantity * item.price).toFixed(2)}
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div className="mt-auto">
+                                <div className="flex justify-between items-end mb-12">
+                                    <div className="w-1/2 flex flex-col justify-end">
+                                        {(docType === 'invoice' || docType === 'delivery') && (
+                                            <>
+                                                {/* Render the Signature Image Here if Toggled ON */}
+                                                <div className="mb-2 h-28 flex items-end">
+                                                    {showSignatureDoc && signature ? (
+                                                        <img src={signature} alt="Authorized Signature" className="max-h-28 max-w-[250px] object-contain mix-blend-multiply" />
+                                                    ) : (
+                                                        <div className="h-28 w-full"></div> 
+                                                    )}
+                                                </div>
+                                                <div className="border-t-2 border-gray-800 pt-2 w-64 text-center text-sm text-gray-800 font-bold uppercase tracking-wider">
+                                                    {docType === 'delivery' ? 'Received By (Sign / Stamp)' : 'Authorized Signatory'}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                    
+                                    {showPrices && (
+                                        <div className="w-2/5">
+                                            <div className="flex justify-between py-2 text-gray-600">
+                                                <span>Subtotal</span>
+                                                <span><span className="mr-1 text-xs">MVR</span>{subtotal.toFixed(2)}</span>
+                                            </div>
+                                            <div className="flex justify-between py-4 border-t-2 border-gray-800 font-bold text-2xl text-primary mt-2">
+                                                <span>Total</span>
+                                                <span><span className="mr-1 text-gray-500 text-lg">MVR</span>{subtotal.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="text-center text-sm text-gray-400 border-t pt-4">
+                                    Thank you for your business. | AJAR Business Solutions
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const tabs = [
+                { id: 'edit', label: 'Edit Draft', icon: 'edit-2' },
+                { id: 'quotation', label: 'Quotation', icon: 'file', disabled: !formState.docs.q },
+                { id: 'invoice', label: 'Invoice', icon: 'file-text', disabled: !formState.docs.inv },
+                { id: 'delivery', label: 'Delivery Note', icon: 'truck', disabled: !formState.docs.dn },
+                { id: 'history', label: 'History', icon: 'archive' },
+                { id: 'customers', label: 'Customers', icon: 'users' },
+                { id: 'addresses', label: 'Addresses', icon: 'map-pin' },
+                { id: 'signature', label: 'Signature', icon: 'pen-tool' }
+            ];
+
+            return (
+                <div className="min-h-screen flex flex-col font-sans">
+                    <nav className="bg-primary text-white p-4 shadow-md print-hidden overflow-x-auto">
+                        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 min-w-max">
+                            <h1 className="text-2xl font-black tracking-widest flex items-center gap-2 cursor-pointer" onClick={startNewBundle}>
+                                <i data-lucide="layers" className="w-6 h-6"></i> AJAR
+                            </h1>
+                            <div className="flex flex-nowrap justify-center gap-1 bg-blue-950/50 p-1 rounded-lg">
+                                {tabs.map(tab => (
+                                    <button 
+                                        key={tab.id} 
+                                        onClick={() => !tab.disabled && setActiveTab(tab.id)} 
+                                        disabled={tab.disabled}
+                                        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap
+                                            ${activeTab === tab.id ? 'bg-white text-primary shadow' : tab.disabled ? 'opacity-40 cursor-not-allowed text-blue-200' : 'hover:bg-blue-800 text-blue-100'}`}
+                                    >
+                                        <i data-lucide={tab.icon} className="w-4 h-4 hidden sm:block"></i> {tab.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="flex-grow p-4 md:p-8">
+                        {activeTab === 'edit' && renderEditForm()}
+                        {activeTab === 'history' && renderHistory()}
+                        {activeTab === 'customers' && renderCustomers()}
+                        {activeTab === 'addresses' && <AddressesTab addresses={addresses} setAddresses={setAddresses} />}
+                        {activeTab === 'signature' && <SignatureTab signature={signature} setSignature={setSignature} />}
+                        {activeTab === 'quotation' && renderDocument('quotation')}
+                        {activeTab === 'invoice' && renderDocument('invoice')}
+                        {activeTab === 'delivery' && renderDocument('delivery')}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+        
+        const initIcons = () => {
+            setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 100);
+        };
+        const observer = new MutationObserver(initIcons);
+        observer.observe(document.body, { childList: true, subtree: true });
+        initIcons();
+    </script>
+</body>
+</html>
